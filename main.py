@@ -25,7 +25,7 @@ def flatten_columns(data: pd.DataFrame) -> pd.DataFrame:
 def get_data() -> pd.DataFrame:
     data = yf.download(
         TICKER,
-        period="7d",
+        period="14d",
         interval="5m",
         progress=False,
         auto_adjust=False,
@@ -45,28 +45,53 @@ def get_data() -> pd.DataFrame:
     return data
 
 
-def get_overnight_window(now: datetime) -> tuple[datetime, datetime, str]:
+def get_latest_overnight_session(data: pd.DataFrame) -> tuple[pd.DataFrame, datetime, datetime, str]:
+    now = datetime.now(SESSION_TZ)
     market_open = time(9, 30)
-    overnight_start = time(18, 0)
+    overnight_start_time = time(18, 0)
 
-    if now.time() >= overnight_start:
-        start = datetime.combine(now.date(), overnight_start, tzinfo=SESSION_TZ)
-        end = now
-        status = "Forming"
+    possible_dates = []
 
-    elif now.time() < market_open:
-        start_date = now.date() - timedelta(days=1)
-        start = datetime.combine(start_date, overnight_start, tzinfo=SESSION_TZ)
-        end = now
-        status = "Forming"
+    for days_back in range(0, 10):
+        session_date = now.date() - timedelta(days=days_back)
+        possible_dates.append(session_date)
 
-    else:
-        start_date = now.date() - timedelta(days=1)
-        start = datetime.combine(start_date, overnight_start, tzinfo=SESSION_TZ)
-        end = datetime.combine(now.date(), market_open, tzinfo=SESSION_TZ)
-        status = "Locked"
+    for session_date in possible_dates:
+        start_date = session_date - timedelta(days=1)
 
-    return start, end, status
+        start = datetime.combine(
+            start_date,
+            overnight_start_time,
+            tzinfo=SESSION_TZ,
+        )
+
+        end = datetime.combine(
+            session_date,
+            market_open,
+            tzinfo=SESSION_TZ,
+        )
+
+        overnight_data = data[
+            (data.index >= start)
+            & (data.index <= end)
+        ]
+
+        if not overnight_data.empty:
+            if session_date == now.date() and now.time() < market_open:
+                status = "Forming"
+                overnight_data = data[
+                    (data.index >= start)
+                    & (data.index <= now)
+                ]
+                end = now
+            elif session_date == now.date() and now.time() >= market_open:
+                status = "Locked"
+            else:
+                status = "Most Recent Available"
+
+            return overnight_data, start, end, status
+
+    raise ValueError("No overnight session with data was found in the last 10 days.")
 
 
 def money_format(value):
@@ -82,15 +107,8 @@ def calculate_dashboard() -> dict:
         raise ValueError("No market data returned from yfinance.")
 
     now = datetime.now(SESSION_TZ)
-    overnight_start, overnight_end, session_status = get_overnight_window(now)
 
-    overnight_data = data[
-        (data.index >= overnight_start)
-        & (data.index <= overnight_end)
-    ]
-
-    if overnight_data.empty:
-        raise ValueError("No overnight data found for the selected session.")
+    overnight_data, overnight_start, overnight_end, session_status = get_latest_overnight_session(data)
 
     current_price = float(data["Close"].iloc[-1])
     overnight_high = float(overnight_data["High"].max())
@@ -105,9 +123,9 @@ def calculate_dashboard() -> dict:
     setup = "Waiting"
     entry = None
     stop = None
-    notes = "Overnight levels are still forming."
+    notes = "Overnight levels found. Waiting for clean setup."
 
-    if session_status == "Locked":
+    if session_status in ["Locked", "Most Recent Available"]:
         rth_data = data[data.index > overnight_end]
 
         touched_high = rth_data[rth_data["High"] >= overnight_high]
