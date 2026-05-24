@@ -1,0 +1,4 @@
+total_trades,net_pnl,win_rate,profit_factor,sharpe_ratio,max_wins_in_row,max_losses_in_row,ambiguous_entry_count,ambiguous_exit_count,gap_through_entry_count,slippage_points_per_side,ambiguous_setup_count
+12,-497.0,50.0,0.46,-27.45,2,2,12,6,9,0.25,134
+12,-509.0,50.0,0.45,-28.11,2,2,12,6,9,0.5,134
+12,-533.0,50.0,0.43,-29.43,2,2,12,6,9,1.0,134
